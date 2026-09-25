@@ -57,7 +57,7 @@ export PATH="$ENV/armgcc/bin:$PATH"
 # === 4. KiCad AppImage из чанков (kicad_aa..ae, ~486 МБ) ===
 # Сборка плат — ТОЛЬКО через AppImage (pcbnew CLI).
 # Текстовый kicad_headless_toolkit.py — запасной вариант.
-KICAD_BYTES=486007834
+KICAD_BYTES=485987834
 if [ ! -x "$ENV/squashfs-root/usr/bin/kicad" ]; then
     if ls "$TOOLCHAIN"/kicad_chunks/kicad_* >/dev/null 2>&1; then
         echo "Собираю KiCad AppImage из чанков..."

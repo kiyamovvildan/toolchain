@@ -11,7 +11,7 @@ cat kicad_chunks/kicad_a* > /tmp/KiCad.AppImage && chmod +x /tmp/KiCad.AppImage
 cd /tmp && ./KiCad.AppImage --appimage-extract   # FUSE нет, только распаковка
 /tmp/squashfs-root/AppRun sch erc <проект>/titan-core.kicad_sch   # валидация ДО пуша
 
-Скачивание чанков: https://raw.githubusercontent.com/villi83/toolchain/main/kicad_chunks/kicad_aX
+Скачивание чанков: https://raw.githubusercontent.com/kiyamovvildan/toolchain/main/kicad_chunks/kicad_aX
 (каждый чанк < 100MB, fuse-лимит /mnt/agents не касается при скачивании в /tmp)
 
 ## Правило проекта (TITAN)

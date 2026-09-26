@@ -67,6 +67,7 @@ jobs:
           git fetch --depth=50 origin "+refs/heads/${{ inputs.branch }}:refs/remotes/origin/${{ inputs.branch }}" || { echo FETCH_FAIL; exit 1; }
           git branch -a
           git checkout -B "${{ inputs.branch }}" "refs/remotes/origin/${{ inputs.branch }}"
+          git fetch --depth=1 origin main && git checkout FETCH_HEAD -- ci/jobs
 
       - name: Выполнить задание
         env:

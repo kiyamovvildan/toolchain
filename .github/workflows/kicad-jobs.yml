@@ -64,8 +64,9 @@ jobs:
           set -e
           git clone --depth=50 "https://${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/source
           cd /tmp/source
-          git fetch --depth=50 origin "+refs/heads/${{ inputs.branch }}:refs/remotes/origin/${{ inputs.branch }}"
-          git checkout "${{ inputs.branch }}"
+          git fetch --depth=50 origin "+refs/heads/${{ inputs.branch }}:refs/remotes/origin/${{ inputs.branch }}" || { echo FETCH_FAIL; exit 1; }
+          git branch -a
+          git checkout -B "${{ inputs.branch }}" "refs/remotes/origin/${{ inputs.branch }}"
 
       - name: Выполнить задание
         env:

@@ -17,3 +17,10 @@ cd /tmp && ./KiCad.AppImage --appimage-extract   # FUSE нет, только р�
 ## Правило проекта (TITAN)
 Любые правки схем/плат — только после локального прогона ERC/DRC через kicad-cli.
 Баланс скобок НЕ гарантирует валидность файла (уроки v2.2.37/v2.2.41).
+
+## kicad-jobs (стабильная песочница, 26.09)
+Workflow `.github/workflows/kicad-jobs.yml`: тяжёлые KiCad-задачи гоняются здесь
+(публичный репо => безлимитные минуты Actions, стабильная VM, без обрывов).
+Задание = ci/jobs/<job>.sh в ПРИВАТНОМ source (ветка по выбору). Все расчёты и
+результаты пушатся только в source. Требуется секрет SOURCE_PUSH_TOKEN
+(Settings → Secrets and variables → Actions). Триггер: workflow_dispatch.

@@ -1,0 +1,82 @@
+# ============================================================
+# kicad-jobs — стабильная «песочница» для тяжёлых KiCad-задач
+# Публичный репо => минуты Actions НЕ расходуют лимит приватных 2000.
+#
+# ЧТО КУДА ИДЁТ (требование юзера 26.09):
+#  - ВСЕ расчёты и результаты — только в ПРИВАТНЫЙ source (push через PAT).
+#  - В этот публичный репо НИЧЕГО не коммитится (кроме самого workflow).
+#  - Раннер одноразовый: VM уничтожается после прогона, диск стирается.
+#
+# ПРОТОКОЛ ЗАДАНИЯ:
+#  1. Задание = скрипт ci/jobs/<job>.sh в ВЕТКЕ source (ветка = input branch).
+#     Скрипт получает окружение: PATH с KiCad, $SRC (клон source), $TOOLCHAIN.
+#     Скрипт САМ коммитит и пушит результаты (git push работает: remote
+#     склонирован с токеном).
+#  2. Запуск: Actions → kicad-jobs → Run workflow → job=<имя>, branch=<ветка>.
+#
+# БЕЗОПАСНОСТЬ: триггер только workflow_dispatch (никаких PR/fork-доступов
+# к секретам). Секрет SOURCE_PUSH_TOKEN добавить вручную:
+#  https://github.com/kiyamovvildan/toolchain/settings/secrets/actions
+# ============================================================
+name: kicad-jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Имя задания (ci/jobs/<job>.sh в source)'
+        required: true
+        type: string
+      branch:
+        description: 'Ветка source'
+        required: false
+        default: 'main'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kicad-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать KiCad из чанков
+        run: |
+          set -e
+          cat kicad_chunks/kicad_a[abcde] > /tmp/KiCad.AppImage
+          SZ=$(stat -c%s /tmp/KiCad.AppImage)
+          test "$SZ" = "485987834" || { echo "Чанки неполные: $SZ"; exit 1; }
+          chmod +x /tmp/KiCad.AppImage
+          cd /tmp && ./KiCad.AppImage --appimage-extract
+          /tmp/squashfs-root/usr/bin/kicad-cli version
+
+      - name: Клонировать source (приватный)
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: |
+          set -e
+          git clone --depth=50 "https://${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/source
+          cd /tmp/source && git checkout "${{ inputs.branch }}"
+
+      - name: Выполнить задание
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: |
+          set -e
+          export PATH="/tmp/squashfs-root/usr/bin:$PATH"
+          export SRC=/tmp/source
+          export TOOLCHAIN="$GITHUB_WORKSPACE"
+          cd /tmp/source
+          test -f "ci/jobs/${{ inputs.job }}.sh" || { echo "Нет ci/jobs/${{ inputs.job }}.sh в ветке ${{ inputs.branch }}"; exit 1; }
+          bash "ci/jobs/${{ inputs.job }}.sh"
+
+      - name: Очистка (раннер и так одноразовый)
+        if: always()
+        run: rm -rf /tmp/source /tmp/squashfs-root /tmp/KiCad.AppImage

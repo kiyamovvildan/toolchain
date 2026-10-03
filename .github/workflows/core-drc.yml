@@ -5,6 +5,7 @@ jobs:
   drc:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: source (private)
         env:
           SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}

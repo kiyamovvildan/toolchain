@@ -1,0 +1,38 @@
+name: core-drc
+on:
+  workflow_dispatch:
+jobs:
+  drc:
+    runs-on: ubuntu-latest
+    steps:
+      - name: source (private)
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: git clone --depth=1 "https://${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
+      - name: KiCad AppImage
+        run: |
+          cat kicad_chunks/kicad_a[abcde] > /tmp/KiCad.AppImage
+          chmod +x /tmp/KiCad.AppImage
+          cd /tmp && ./KiCad.AppImage --appimage-extract >/dev/null
+          echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
+      - name: DRC core (imported_hw) — список висячих
+        run: |
+          cd /tmp/src
+          kicad-cli pcb drc titan-core/imported_hw/titan-core.kicad_pcb --format json --output /tmp/core-drc.json
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/core-drc.json"))
+          vs = d.get("violations", [])
+          unc = [v for v in vs if v["type"] in ("unconnected_items","unconnected_pad","unconnected_wire_endpoint")]
+          errs = [v for v in vs if v.get("severity")=="error"]
+          print("TOTAL violations:", len(vs), "| errors:", len(errs), "| unconnected:", len(unc))
+          for v in unc:
+              for i in v.get("items", []):
+                  print("UNC", round(i["pos"]["x"],2), round(i["pos"]["y"],2), i["description"][:80])
+          for v in errs[:20]:
+              print("ERR", v["type"], v["description"][:70])
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-drc
+          path: /tmp/core-drc.json

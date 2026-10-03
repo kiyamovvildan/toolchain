@@ -7,7 +7,7 @@ jobs:
     steps:
       - name: source (private)
         run: |
-          git clone --depth=1 https://x-access-token:${{ secrets.SOURCE_TOKEN }}@github.com/kiyamovvildan/source.git /tmp/src
+          git clone --depth=1 https://x-access-token:${{ secrets.SOURCE_PUSH_TOKEN }}@github.com/kiyamovvildan/source.git /tmp/src
       - name: KiCad AppImage
         run: |
           git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc

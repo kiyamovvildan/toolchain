@@ -1,0 +1,49 @@
+name: srr-board
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: source (private)
+        run: |
+          git clone --depth=1 https://x-access-token:${{ secrets.SOURCE_TOKEN }}@github.com/kiyamovvildan/source.git /tmp/src
+      - name: KiCad AppImage
+        run: |
+          git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc
+          cat /tmp/tc/kicad_chunks/kicad_a* > /tmp/KiCad.AppImage
+          chmod +x /tmp/KiCad.AppImage
+          cd /tmp && ./KiCad.AppImage --appimage-extract >/dev/null
+          echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
+      - name: "Стадия 1: каркас (strip + re-net + J22 16p)"
+        run: |
+          cd /tmp/src
+          kicad-cli sch export netlist --format kicadsexpr SRR-MOD/titan-srr.kicad_sch -o /tmp/srr_new.net
+          PYTHONPATH=tools python3 tools/srr_board_stage1.py /tmp/srr_new.net
+      - name: "Стадия 2: RF + питание + зоны"
+        run: |
+          cd /tmp/src
+          PYTHONPATH=tools python3 tools/srr_board_stage2.py
+      - name: DRC (JSON)
+        run: |
+          cd /tmp/src
+          kicad-cli pcb drc SRR-MOD/titan-srr.kicad_pcb --format json --output /tmp/drc.json
+          python3 - <<'EOF'
+          import json
+          from collections import Counter
+          d = json.load(open("/tmp/drc.json"))
+          vs = d.get("violations", [])
+          c = Counter(v["type"] for v in vs)
+          errs = [v for v in vs if v.get("severity")=="error"]
+          print("CLASSES:", dict(c))
+          print("ERRORS:", len(errs))
+          for v in errs:
+              pts = [(round(i["pos"]["x"],2), round(i["pos"]["y"],2)) for i in v.get("items",[])]
+              print("ERR", v["type"], v["description"][:70], pts[:2])
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: srr-board
+          path: |
+            /tmp/drc.json
+            /tmp/src/SRR-MOD/titan-srr.kicad_pcb

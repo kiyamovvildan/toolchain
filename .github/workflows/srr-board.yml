@@ -24,6 +24,17 @@ jobs:
         run: |
           cd /tmp/src
           PYTHONPATH=tools python3 tools/srr_board_stage2.py
+      - name: "Заливка зон (refill) перед DRC"
+        run: |
+          cd /tmp/src
+          cat > /tmp/refill.py <<'EOF'
+          import pcbnew
+          b = pcbnew.LoadBoard("SRR-MOD/titan-srr.kicad_pcb")
+          pcbnew.ZONE_FILLER(b).Fill(b.Zones())
+          pcbnew.SaveBoard("SRR-MOD/titan-srr.kicad_pcb", b)
+          print("zones refilled:", len(b.Zones()))
+          EOF
+          ( /tmp/squashfs-root/usr/bin/python3 /tmp/refill.py ) || ( PYTHONPATH=/tmp/squashfs-root/usr/lib/python3/dist-packages python3 /tmp/refill.py )
       - name: DRC (JSON)
         run: |
           cd /tmp/src

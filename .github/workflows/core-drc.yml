@@ -13,10 +13,10 @@ jobs:
           git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc
           cat /tmp/tc/kicad_chunks/kicad_a* > /tmp/KiCad.AppImage
           chmod +x /tmp/KiCad.AppImage
-          ls -la /tmp/KiCad.AppImage
           cd /tmp && ./KiCad.AppImage --appimage-extract || echo "EXTRACT_FAIL_1"
-          if [ ! -d /tmp/squashfs-root ]; then echo "retry extract"; cd /tmp && ./KiCad.AppImage --appimage-extract; fi
-          test -x /tmp/squashfs-root/usr/bin/kicad-cli && echo "KICAD_CLI_OK"
+          if [ ! -d /tmp/squashfs-root ]; then echo retry; cd /tmp && ./KiCad.AppImage --appimage-extract; fi
+          ls /tmp/squashfs-root/usr/bin/kicad-cli && echo KICAD_CLI_OK
+          ls /tmp/squashfs-root/usr/bin/python3* || echo NO_BUNDLED_PY
           echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
       - name: "Заливка зон перед DRC (refill)"
         run: |
@@ -28,7 +28,10 @@ jobs:
           pcbnew.SaveBoard("titan-core/imported_hw/titan-core.kicad_pcb", b)
           print("zones refilled:", len(b.Zones()))
           EOF
-          ( /tmp/squashfs-root/usr/bin/python3 /tmp/refill.py ) || ( PYTHONPATH=/tmp/squashfs-root/usr/lib/python3/dist-packages python3 /tmp/refill.py )
+          PYBIN=$(ls /tmp/squashfs-root/usr/bin/python3* 2>/dev/null | head -1)
+          SO=$(find /tmp/squashfs-root \( -name "_pcbnew*.so" -o -name "pcbnew*.so" \) 2>/dev/null | head -1)
+          echo "PYBIN=$PYBIN SO=$SO"
+          if [ -n "$PYBIN" ]; then "$PYBIN" /tmp/refill.py; else PYTHONPATH="$(dirname "$SO")" python3 /tmp/refill.py; fi
       - name: DRC (JSON)
         run: |
           cd /tmp/src

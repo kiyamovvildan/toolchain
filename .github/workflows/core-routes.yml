@@ -1,0 +1,66 @@
+name: core-routes
+on:
+  workflow_dispatch:
+    inputs:
+      batch:
+        description: "JSON-батч в titan-core/routes/ (напр. batch1.json)"
+        required: true
+        default: "batch0.json"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: source (private)
+        run: |
+          git clone --depth=1 https://x-access-token:${{ secrets.SOURCE_PUSH_TOKEN }}@github.com/kiyamovvildan/source.git /tmp/src
+      - name: KiCad AppImage
+        run: |
+          git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc
+          cat /tmp/tc/kicad_chunks/kicad_a* > /tmp/KiCad.AppImage
+          chmod +x /tmp/KiCad.AppImage
+          cd /tmp && ./KiCad.AppImage --appimage-extract || echo "EXTRACT_FAIL_1"
+          if [ ! -d /tmp/squashfs-root ]; then echo retry; cd /tmp && ./KiCad.AppImage --appimage-extract; fi
+          ls /tmp/squashfs-root/usr/bin/kicad-cli && echo KICAD_CLI_OK
+          echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
+      - name: "Применение батча трасс"
+        run: |
+          cd /tmp/src
+          python3 tools/core_route.py "titan-core/routes/${{ inputs.batch }}"
+      - name: "Заливка зон (refill)"
+        run: |
+          cd /tmp/src
+          cat > /tmp/refill.py <<'EOF'
+          import pcbnew
+          b = pcbnew.LoadBoard("titan-core/imported_hw/titan-core.kicad_pcb")
+          pcbnew.ZONE_FILLER(b).Fill(b.Zones())
+          pcbnew.SaveBoard("titan-core/imported_hw/titan-core.kicad_pcb", b)
+          print("zones refilled:", len(b.Zones()))
+          EOF
+          PYBIN=$(ls /tmp/squashfs-root/usr/bin/python3* 2>/dev/null | head -1)
+          SO=$(find /tmp/squashfs-root \( -name "_pcbnew*.so" -o -name "pcbnew*.so" \) 2>/dev/null | head -1)
+          echo "PYBIN=$PYBIN SO=$SO"
+          if [ -n "$PYBIN" ]; then "$PYBIN" /tmp/refill.py; else PYTHONPATH="$(dirname "$SO")" python3 /tmp/refill.py; fi
+      - name: DRC (JSON)
+        run: |
+          cd /tmp/src
+          kicad-cli pcb drc titan-core/imported_hw/titan-core.kicad_pcb --format json --output /tmp/drc.json
+          python3 - <<'EOF'
+          import json
+          from collections import Counter
+          d = json.load(open("/tmp/drc.json"))
+          vs = d.get("violations", [])
+          c = Counter(v["type"] for v in vs)
+          errs = [v for v in vs if v.get("severity")=="error"]
+          print("CLASSES:", dict(c))
+          print("ERRORS:", len(errs))
+          print("UNCONNECTED:", len(d.get("unconnected_items", [])))
+          for v in errs[:14]:
+              pts = [(round(i["pos"]["x"],2), round(i["pos"]["y"],2)) for i in v.get("items",[])]
+              print("ERR", v["type"], v["description"][:60], pts[:2])
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-routes
+          path: |
+            /tmp/drc.json
+            /tmp/src/titan-core/imported_hw/titan-core.kicad_pcb

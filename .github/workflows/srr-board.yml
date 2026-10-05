@@ -35,9 +35,10 @@ jobs:
           print("zones refilled:", len(b.Zones()))
           EOF
           PYBIN=$(ls /tmp/squashfs-root/usr/bin/python3* 2>/dev/null | head -1)
-          PYDIR=$(dirname $(find /tmp/squashfs-root -name "pcbnew*.so" 2>/dev/null | head -1))
-          echo "PYBIN=$PYBIN PYDIR=$PYDIR"
-          PYTHONPATH="$PYDIR" "$PYBIN" /tmp/refill.py
+          SO=$(find /tmp/squashfs-root \( -name "_pcbnew*.so" -o -name "pcbnew*.so" \) 2>/dev/null | head -1)
+          echo "PYBIN=$PYBIN SO=$SO"
+          if [ -z "$SO" ]; then echo "DIAG:"; find /tmp/squashfs-root -maxdepth 5 -name "*pcbnew*" 2>/dev/null | head -10; ls /tmp/squashfs-root/usr/lib/python3/dist-packages/ 2>/dev/null | head; fi
+          PYTHONPATH="$(dirname "$SO")" "$PYBIN" /tmp/refill.py
       - name: DRC (JSON)
         run: |
           cd /tmp/src

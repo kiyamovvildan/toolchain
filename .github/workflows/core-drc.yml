@@ -13,7 +13,10 @@ jobs:
           git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc
           cat /tmp/tc/kicad_chunks/kicad_a* > /tmp/KiCad.AppImage
           chmod +x /tmp/KiCad.AppImage
-          cd /tmp && ./KiCad.AppImage --appimage-extract >/dev/null
+          ls -la /tmp/KiCad.AppImage
+          cd /tmp && ./KiCad.AppImage --appimage-extract || echo "EXTRACT_FAIL_1"
+          if [ ! -d /tmp/squashfs-root ]; then echo "retry extract"; cd /tmp && ./KiCad.AppImage --appimage-extract; fi
+          test -x /tmp/squashfs-root/usr/bin/kicad-cli && echo "KICAD_CLI_OK"
           echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
       - name: "Заливка зон перед DRC (refill)"
         run: |

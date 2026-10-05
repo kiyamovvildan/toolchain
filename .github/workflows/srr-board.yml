@@ -34,7 +34,10 @@ jobs:
           pcbnew.SaveBoard("SRR-MOD/titan-srr.kicad_pcb", b)
           print("zones refilled:", len(b.Zones()))
           EOF
-          ( /tmp/squashfs-root/usr/bin/python3 /tmp/refill.py ) || ( PYTHONPATH=/tmp/squashfs-root/usr/lib/python3/dist-packages python3 /tmp/refill.py )
+          PYBIN=$(ls /tmp/squashfs-root/usr/bin/python3* 2>/dev/null | head -1)
+          PYDIR=$(dirname $(find /tmp/squashfs-root -name "pcbnew*.so" 2>/dev/null | head -1))
+          echo "PYBIN=$PYBIN PYDIR=$PYDIR"
+          PYTHONPATH="$PYDIR" "$PYBIN" /tmp/refill.py
       - name: DRC (JSON)
         run: |
           cd /tmp/src

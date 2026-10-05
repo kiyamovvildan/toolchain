@@ -2,38 +2,51 @@ name: core-drc
 on:
   workflow_dispatch:
 jobs:
-  drc:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - name: source (private)
-        env:
-          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
-        run: git clone --depth=1 "https://${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
+        run: |
+          git clone --depth=1 https://x-access-token:${{ secrets.SOURCE_PUSH_TOKEN }}@github.com/kiyamovvildan/source.git /tmp/src
       - name: KiCad AppImage
         run: |
-          cat kicad_chunks/kicad_a[abcde] > /tmp/KiCad.AppImage
+          git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc
+          cat /tmp/tc/kicad_chunks/kicad_a* > /tmp/KiCad.AppImage
           chmod +x /tmp/KiCad.AppImage
           cd /tmp && ./KiCad.AppImage --appimage-extract >/dev/null
           echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
-      - name: DRC core (imported_hw) — список висячих
+      - name: "Заливка зон перед DRC (refill)"
         run: |
           cd /tmp/src
-          kicad-cli pcb drc titan-core/imported_hw/titan-core.kicad_pcb --format json --output /tmp/core-drc.json
+          cat > /tmp/refill.py <<'EOF'
+          import pcbnew
+          b = pcbnew.LoadBoard("titan-core/imported_hw/titan-core.kicad_pcb")
+          pcbnew.ZONE_FILLER(b).Fill(b.Zones())
+          pcbnew.SaveBoard("titan-core/imported_hw/titan-core.kicad_pcb", b)
+          print("zones refilled:", len(b.Zones()))
+          EOF
+          ( /tmp/squashfs-root/usr/bin/python3 /tmp/refill.py ) || ( PYTHONPATH=/tmp/squashfs-root/usr/lib/python3/dist-packages python3 /tmp/refill.py )
+      - name: DRC (JSON)
+        run: |
+          cd /tmp/src
+          kicad-cli pcb drc titan-core/imported_hw/titan-core.kicad_pcb --format json --output /tmp/drc.json
           python3 - <<'EOF'
           import json
-          d = json.load(open("/tmp/core-drc.json"))
+          from collections import Counter
+          d = json.load(open("/tmp/drc.json"))
           vs = d.get("violations", [])
-          unc = [v for v in vs if v["type"] in ("unconnected_items","unconnected_pad","unconnected_wire_endpoint")]
+          c = Counter(v["type"] for v in vs)
           errs = [v for v in vs if v.get("severity")=="error"]
-          print("TOTAL violations:", len(vs), "| errors:", len(errs), "| unconnected:", len(unc))
-          for v in unc:
-              for i in v.get("items", []):
-                  print("UNC", round(i["pos"]["x"],2), round(i["pos"]["y"],2), i["description"][:80])
-          for v in errs[:20]:
-              print("ERR", v["type"], v["description"][:70])
+          print("CLASSES:", dict(c))
+          print("ERRORS:", len(errs))
+          print("UNCONNECTED:", len(d.get("unconnected_items", [])))
+          for v in errs[:12]:
+              pts = [(round(i["pos"]["x"],2), round(i["pos"]["y"],2)) for i in v.get("items",[])]
+              print("ERR", v["type"], v["description"][:64], pts[:2])
           EOF
       - uses: actions/upload-artifact@v4
         with:
-          name: core-drc
-          path: /tmp/core-drc.json
+          name: core-board
+          path: |
+            /tmp/drc.json
+            /tmp/src/titan-core/imported_hw/titan-core.kicad_pcb

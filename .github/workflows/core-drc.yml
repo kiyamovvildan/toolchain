@@ -1,58 +1,36 @@
 name: core-drc
 on:
   workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-drc
+  cancel-in-progress: false
 jobs:
-  build:
+  run:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
-      - name: source (private)
+      - uses: actions/checkout@v4
+      - name: Source (приватный) + запуск (код — в source/ci/)
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          TOOLCHAIN: ${{ github.workspace }}
         run: |
-          git clone --depth=1 https://x-access-token:${{ secrets.SOURCE_PUSH_TOKEN }}@github.com/kiyamovvildan/source.git /tmp/src
-      - name: KiCad AppImage
+          git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/meta
+          git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
+          bash /tmp/meta/ci/core-drc.sh
+      - name: Стирание предыдущих прогонов (логов)
+        if: always()
+        env:
+          CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
         run: |
-          git clone --depth=1 https://github.com/kiyamovvildan/toolchain.git /tmp/tc
-          cat /tmp/tc/kicad_chunks/kicad_a* > /tmp/KiCad.AppImage
-          chmod +x /tmp/KiCad.AppImage
-          cd /tmp && ./KiCad.AppImage --appimage-extract || echo "EXTRACT_FAIL_1"
-          if [ ! -d /tmp/squashfs-root ]; then echo retry; cd /tmp && ./KiCad.AppImage --appimage-extract; fi
-          ls /tmp/squashfs-root/usr/bin/kicad-cli && echo KICAD_CLI_OK
-          ls /tmp/squashfs-root/usr/bin/python3* || echo NO_BUNDLED_PY
-          echo "/tmp/squashfs-root/usr/bin" >> "$GITHUB_PATH"
-      - name: "Заливка зон перед DRC (refill)"
-        run: |
-          cd /tmp/src
-          cat > /tmp/refill.py <<'EOF'
-          import pcbnew
-          b = pcbnew.LoadBoard("titan-core/imported_hw/titan-core.kicad_pcb")
-          pcbnew.ZONE_FILLER(b).Fill(b.Zones())
-          pcbnew.SaveBoard("titan-core/imported_hw/titan-core.kicad_pcb", b)
-          print("zones refilled:", len(b.Zones()))
-          EOF
-          PYBIN=$(ls /tmp/squashfs-root/usr/bin/python3* 2>/dev/null | head -1)
-          SO=$(find /tmp/squashfs-root \( -name "_pcbnew*.so" -o -name "pcbnew*.so" \) 2>/dev/null | head -1)
-          echo "PYBIN=$PYBIN SO=$SO"
-          if [ -n "$PYBIN" ]; then "$PYBIN" /tmp/refill.py; else PYTHONPATH="$(dirname "$SO")" python3 /tmp/refill.py; fi
-      - name: DRC (JSON)
-        run: |
-          cd /tmp/src
-          kicad-cli pcb drc titan-core/imported_hw/titan-core.kicad_pcb --format json --output /tmp/drc.json
-          python3 - <<'EOF'
-          import json
-          from collections import Counter
-          d = json.load(open("/tmp/drc.json"))
-          vs = d.get("violations", [])
-          c = Counter(v["type"] for v in vs)
-          errs = [v for v in vs if v.get("severity")=="error"]
-          print("CLASSES:", dict(c))
-          print("ERRORS:", len(errs))
-          print("UNCONNECTED:", len(d.get("unconnected_items", [])))
-          for v in errs[:12]:
-              pts = [(round(i["pos"]["x"],2), round(i["pos"]["y"],2)) for i in v.get("items",[])]
-              print("ERR", v["type"], v["description"][:64], pts[:2])
-          EOF
-      - uses: actions/upload-artifact@v4
-        with:
-          name: core-board
-          path: |
-            /tmp/drc.json
-            /tmp/src/titan-core/imported_hw/titan-core.kicad_pcb
+          for RID in $(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs?per_page=30" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(r['id']) for r in d.get('workflow_runs',[]) if r['name']=='core-drc'))"); do
+            [ "$RID" = "$RUN_ID" ] && continue
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
+          done
+          rm -rf /tmp/src /tmp/source /tmp/squashfs-root /tmp/KiCad.AppImage

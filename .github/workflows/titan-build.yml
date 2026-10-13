@@ -1,0 +1,69 @@
+name: titan-build
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: titan-build
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source (приватный) через секрет
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
+      - name: ARM-GCC 13.3.rel1 из чанков этого же репо
+        run: |
+          cat armgcc_chunks/armgcc_a[ab] > /tmp/armgcc.tar.xz
+          xz -t /tmp/armgcc.tar.xz || { echo "чанки битые"; exit 1; }
+          mkdir -p /tmp/armgcc && tar -xf /tmp/armgcc.tar.xz -C /tmp/armgcc --strip-components=1
+          test -x /tmp/armgcc/bin/arm-none-eabi-gcc || exit 1
+          mkdir -p /tmp/armgcc_x
+          ln -sfn /tmp/armgcc /tmp/armgcc_x/arm-gnu-toolchain-13.2.Rel1-x86_64-arm-none-eabi
+      - name: Deps (ST/CMSIS public repos)
+        run: |
+          curl -sfL https://codeload.github.com/STMicroelectronics/cmsis_device_g4/tar.gz/refs/heads/master -o /tmp/devg4.tgz
+          mkdir -p /tmp/devg4 && tar -xzf /tmp/devg4.tgz -C /tmp/devg4 --strip-components=1
+          curl -sfL https://codeload.github.com/STMicroelectronics/STM32CubeG4/tar.gz/refs/heads/master -o /tmp/cg4.tgz
+          mkdir -p /tmp/cg4 && tar -xzf /tmp/cg4.tgz -C /tmp/cg4 STM32CubeG4-master/Drivers
+          curl -sfL https://codeload.github.com/STM32Electronics/stm32g4xx_hal_driver/tar.gz/refs/heads/master -o /tmp/hal.tgz || curl -sfL https://codeload.github.com/STMicroelectronics/stm32g4xx_hal_driver/tar.gz/refs/heads/master -o /tmp/hal.tgz
+          mkdir -p /tmp/hal && tar -xzf /tmp/hal.tgz -C /tmp/hal --strip-components=1
+          curl -sfL https://codeload.github.com/FreeRTOS/FreeRTOS-Kernel/tar.gz/refs/tags/V11.1.0 -o /tmp/frt.tgz
+          mkdir -p /tmp/frt && tar -xzf /tmp/frt.tgz -C /tmp/frt --strip-components=1
+          curl -sfL https://codeload.github.com/ARM-software/CMSIS-FreeRTOS/tar.gz/refs/heads/main -o /tmp/mw.tgz
+          mkdir -p /tmp/mw && tar -xzf /tmp/mw.tgz -C /tmp/mw --strip-components=1
+          mkdir -p /tmp/libs
+          ln -sfn /tmp/hal /tmp/libs/halg4
+          ln -sfn /tmp/devg4 /tmp/libs/devg4
+          ln -sfn /tmp/cg4/STM32CubeG4-master/Drivers/CMSIS/Core/Include /tmp/libs/cmsis_core
+          ln -sfn /tmp/frt /tmp/libs/frtk
+          ln -sfn /tmp/mw/CMSIS/RTOS2/FreeRTOS /tmp/libs/mwrtos
+          test -f /tmp/libs/cmsis_core/core_cm4.h || exit 1
+      - name: Build (firmware/titan-legacy v2.3.53+fix, контур защиты)
+        run: bash /tmp/src/firmware/titan-legacy/build.sh
+      - name: Самоудаление workflow и следов прогонов
+        if: always()
+        env:
+          CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          SHA=$(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            https://api.github.com/repos/kiyamovvildan/toolchain/contents/.github/workflows/titan-build.yml \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['sha'])" || true)
+          if [ -n "$SHA" ]; then
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              -d '{"message":"ci: self-destruct","sha":"'"$SHA"'"}' \
+              https://api.github.com/repos/kiyamovvildan/toolchain/contents/.github/workflows/titan-build.yml || true
+          fi
+          for RID in $(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs?per_page=20" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(r['id']) for r in d.get('workflow_runs',[]) if r['name']=='titan-build'))"); do
+            [ "$RID" = "$RUN_ID" ] && continue
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
+          done
+          rm -rf /tmp/src /tmp/armgcc*

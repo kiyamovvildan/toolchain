@@ -1,25 +1,4 @@
-# ============================================================
-# kicad-jobs — стабильная «песочница» для тяжёлых KiCad-задач
-# Публичный репо => минуты Actions НЕ расходуют лимит приватных 2000.
-#
-# ЧТО КУДА ИДЁТ (требование юзера 26.09):
-#  - ВСЕ расчёты и результаты — только в ПРИВАТНЫЙ source (push через PAT).
-#  - В этот публичный репо НИЧЕГО не коммитится (кроме самого workflow).
-#  - Раннер одноразовый: VM уничтожается после прогона, диск стирается.
-#
-# ПРОТОКОЛ ЗАДАНИЯ:
-#  1. Задание = скрипт ci/jobs/<job>.sh в ВЕТКЕ source (ветка = input branch).
-#     Скрипт получает окружение: PATH с KiCad, $SRC (клон source), $TOOLCHAIN.
-#     Скрипт САМ коммитит и пушит результаты (git push работает: remote
-#     склонирован с токеном).
-#  2. Запуск: Actions → kicad-jobs → Run workflow → job=<имя>, branch=<ветка>.
-#
-# БЕЗОПАСНОСТЬ: триггер только workflow_dispatch (никаких PR/fork-доступов
-# к секретам). Секрет SOURCE_PUSH_TOKEN добавить вручную:
-#  https://github.com/kiyamovvildan/toolchain/settings/secrets/actions
-# ============================================================
 name: kicad-jobs
-
 on:
   workflow_dispatch:
     inputs:
@@ -32,63 +11,41 @@ on:
         required: false
         default: 'main'
         type: string
-
 permissions:
   contents: read
-
 concurrency:
   group: kicad-jobs
   cancel-in-progress: false
-
 jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-
-      - name: Кэш openEMS (сборка из исходников)
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
           path: |
             /home/runner/opt/openEMS
             /home/runner/.local/lib/python3.12/site-packages
           key: openems-build-v1
-
-      - name: Собрать KiCad из чанков
-        run: |
-          set -e
-          cat kicad_chunks/kicad_a[abcde] > /tmp/KiCad.AppImage
-          SZ=$(stat -c%s /tmp/KiCad.AppImage)
-          test "$SZ" = "485987834" || { echo "Чанки неполные: $SZ"; exit 1; }
-          chmod +x /tmp/KiCad.AppImage
-          cd /tmp && ./KiCad.AppImage --appimage-extract
-          /tmp/squashfs-root/usr/bin/kicad-cli version
-
-      - name: Клонировать source (приватный)
+      - name: Source (приватный) + запуск (код — в source/ci/)
         env:
           SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          TOOLCHAIN: ${{ github.workspace }}
         run: |
-          set -e
-          git clone --depth=50 "https://${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/source
-          cd /tmp/source
-          git fetch --depth=50 origin "+refs/heads/${{ inputs.branch }}:refs/remotes/origin/${{ inputs.branch }}" || { echo FETCH_FAIL; exit 1; }
-          git branch -a
-          git checkout -B "${{ inputs.branch }}" "refs/remotes/origin/${{ inputs.branch }}"
-          git fetch --depth=1 origin main && git checkout FETCH_HEAD -- ci/jobs
-
-      - name: Выполнить задание
-        env:
-          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
-        run: |
-          set -e
-          export PATH="/tmp/squashfs-root/usr/bin:$PATH"
-          export SRC=/tmp/source
-          export TOOLCHAIN="$GITHUB_WORKSPACE"
-          cd /tmp/source
-          test -f "ci/jobs/${{ inputs.job }}.sh" || { echo "Нет ci/jobs/${{ inputs.job }}.sh в ветке ${{ inputs.branch }}"; exit 1; }
-          bash "ci/jobs/${{ inputs.job }}.sh"
-
-      - name: Очистка (раннер и так одноразовый)
+          git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/meta
+          bash /tmp/meta/ci/kicad-jobs.sh "${{ inputs.job }}" "${{ inputs.branch }}"
+      - name: Стирание предыдущих прогонов (логов)
         if: always()
-        run: rm -rf /tmp/source /tmp/squashfs-root /tmp/KiCad.AppImage
+        env:
+          CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for RID in $(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs?per_page=30" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(r['id']) for r in d.get('workflow_runs',[]) if r['name']=='kicad-jobs'))"); do
+            [ "$RID" = "$RUN_ID" ] && continue
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
+          done
+          rm -rf /tmp/src /tmp/source /tmp/squashfs-root /tmp/KiCad.AppImage

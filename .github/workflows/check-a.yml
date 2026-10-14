@@ -1,0 +1,38 @@
+# titan-build — тонкий прокси: run в публичном toolchain (безлимит минут),
+# весь код сборки — в приватном source (ci/titan-build.sh), source клонируется
+# через секрет SOURCE_PUSH_TOKEN. Файл постоянный: он ничего не раскрывает.
+# После прогона стираются предыдущие run'ы (логи компиляции).
+name: check-a
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: check-a
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Source (приватный) через секрет
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
+      - name: Сборка (код шагов — в приватном source)
+        run: bash /tmp/src/ci/titan-build.sh
+      - name: Стирание предыдущих прогонов (логов)
+        if: always()
+        env:
+          CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for RID in $(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs?per_page=20" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(r['id']) for r in d.get('workflow_runs',[]) if r['name']=='check-a'))"); do
+            [ "$RID" = "$RUN_ID" ] && continue
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
+          done
+          rm -rf /tmp/src /tmp/armgcc*

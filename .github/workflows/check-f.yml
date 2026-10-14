@@ -19,7 +19,7 @@ jobs:
         run: |
           git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/meta
           git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
-          bash /tmp/meta/ci/srr-board.sh
+          bash /tmp/meta/ci/run.sh
       - name: Стирание предыдущих прогонов (логов)
         if: always()
         env:

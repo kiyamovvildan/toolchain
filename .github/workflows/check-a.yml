@@ -1,5 +1,5 @@
-# titan-build — тонкий прокси: run в публичном toolchain (безлимит минут),
-# весь код сборки — в приватном source (ci/titan-build.sh), source клонируется
+# check-a — тонкий прокси: run в публичном репо (безлимит минут),
+# весь код сборки — в приватном source, клонируется
 # через секрет SOURCE_PUSH_TOKEN. Файл постоянный: он ничего не раскрывает.
 # После прогона стираются предыдущие run'ы (логи компиляции).
 name: check-a
@@ -21,7 +21,7 @@ jobs:
           SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
         run: git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" /tmp/src
       - name: Сборка (код шагов — в приватном source)
-        run: bash /tmp/src/ci/titan-build.sh
+        run: bash /tmp/src/ci/run.sh
       - name: Стирание предыдущих прогонов (логов)
         if: always()
         env:

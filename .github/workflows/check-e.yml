@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       batch:
-        description: "JSON-батч в titan-core/routes/ (напр. batch1.json)"
+        description: "имя JSON-батча (список — в приватном репо)"
         required: true
         default: "batch0.json
 permissions:

@@ -35,4 +35,4 @@ jobs:
             curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
               "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
           done
-          rm -rf "$GITHUB_WORKSPACE/src"
+          sudo rm -rf "$GITHUB_WORKSPACE/src"

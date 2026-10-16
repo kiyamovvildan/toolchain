@@ -4,9 +4,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-concurrency:
-  group: check-g
-  cancel-in-progress: false
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,23 +14,23 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
       - name: Source (приватный) через секрет
         env:
           SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
-        run: git clone "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" "$GITHUB_WORKSPACE/src"
+        run: git clone --depth 1 --branch display-unification "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" "$GITHUB_WORKSPACE/src"
       - name: Android SDK
         uses: android-actions/setup-android@v3
       - name: SDK platform + build-tools
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-      - name: Сборка APK (ветка display-unification)
+      - name: Сборка APK
         working-directory: src/EMELYA-App
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
           gradle assembleDebug --no-daemon
-      - name: Кладём APK в source (android/, ветка display-unification)
+      - name: Кладём APK в source
         working-directory: src
         env:
           SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
@@ -41,8 +38,8 @@ jobs:
           mkdir -p android
           cp EMELYA-App/app/build/outputs/apk/debug/app-debug.apk "android/EMELYA-app-debug-$(date +%Y%m%d-%H%M).apk"
           git config user.email "ci@local" && git config user.name "ci"
-          git add android/ && git commit -m "ci: сборка APK (check-g)" && git push
-      - name: Стирание предыдущих прогонов (логов)
+          git add android/ && git commit -m "ci: APK (check-g)" && git push
+      - name: Стирание предыдущих прогонов
         if: always()
         env:
           CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
@@ -55,4 +52,3 @@ jobs:
             curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
               "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
           done
-          sudo rm -rf "$GITHUB_WORKSPACE/src"

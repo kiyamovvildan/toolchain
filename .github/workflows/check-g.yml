@@ -21,14 +21,21 @@ jobs:
         env:
           SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
         run: git clone --depth 1 --branch display-unification "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" "$GITHUB_WORKSPACE/src"
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-      - name: SDK platform + build-tools
-        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1
+      - name: Android SDK (cmdline-tools вручную, setup-android@v3 битый)
+        run: |
+          set -e
+          curl -sfL -o /tmp/ct.zip "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip"
+          mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+          unzip -q /tmp/ct.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+          mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1
+          ls "$ANDROID_SDK_ROOT/platforms"
       - name: Сборка APK
         working-directory: src/EMELYA-App
         run: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          echo "SDK root: $ANDROID_SDK_ROOT"; ls "$ANDROID_SDK_ROOT"
           gradle assembleDebug --no-daemon
       - name: Кладём APK в source
         working-directory: src

@@ -1,0 +1,55 @@
+# check-g — сборка APK (только dispatch; код и исходники — в приватном source).
+name: check-g
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: check-g
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Source (приватный) через секрет
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: git clone "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/source.git" "$GITHUB_WORKSPACE/src"
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: SDK platform + build-tools
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" >/dev/null 2>&1
+      - name: Сборка APK (ветка display-unification)
+        working-directory: src/EMELYA-App
+        run: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          gradle assembleDebug --no-daemon
+      - name: Кладём APK в source (android/, ветка display-unification)
+        working-directory: src
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: |
+          mkdir -p android
+          cp EMELYA-App/app/build/outputs/apk/debug/app-debug.apk "android/EMELYA-app-debug-$(date +%Y%m%d-%H%M).apk"
+          git config user.email "ci@local" && git config user.name "ci"
+          git add android/ && git commit -m "ci: сборка APK (check-g)" && git push
+      - name: Стирание предыдущих прогонов (логов)
+        if: always()
+        env:
+          CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for RID in $(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs?per_page=20" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(r['id']) for r in d.get('workflow_runs',[]) if r['name']=='check-g'))"); do
+            [ "$RID" = "$RUN_ID" ] && continue
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
+          done
+          sudo rm -rf "$GITHUB_WORKSPACE/src"

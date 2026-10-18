@@ -5,7 +5,7 @@ on:
       batch:
         description: "имя JSON-батча (список — в приватном репо)"
         required: true
-        default: "batch0.json
+        default: "batch0.json"
 permissions:
   contents: read
 concurrency:

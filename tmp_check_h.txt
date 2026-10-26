@@ -1,0 +1,44 @@
+# check-h — парсинг спецификации ОВ из приватного ventilyatsiya-evgeniy (только dispatch).
+# Тонкий прокси: run в публичном репо, PDF и код — в приватном, клонируется через SOURCE_PUSH_TOKEN.
+name: check-h
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Репо вентиляции (приватный) через секрет
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: git clone --depth=1 "https://x-access-token:${SOURCE_PUSH_TOKEN}@github.com/kiyamovvildan/ventilyatsiya-evgeniy.git" /tmp/vent
+      - run: sudo apt-get update && sudo apt-get install -y poppler-utils && pip install openpyxl
+      - name: Парсинг PDF -> specification.xlsx
+        run: |
+          cd /tmp/vent
+          python3 tools/parse_spec.py "$(ls *.pdf | head -1)" specification.xlsx
+      - name: Кладём xlsx обратно
+        working-directory: /tmp/vent
+        env:
+          SOURCE_PUSH_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+        run: |
+          git config user.email "ci@local" && git config user.name "ci"
+          git add specification.xlsx
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "ci: specification.xlsx (check-h)" && git push
+      - name: Стирание предыдущих прогонов
+        if: always()
+        env:
+          CI_TOKEN: ${{ secrets.SOURCE_PUSH_TOKEN }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          for RID in $(curl -sf -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+            "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs?per_page=20" \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); print(' '.join(str(r['id']) for r in d.get('workflow_runs',[]) if r['name']=='check-h'))"); do
+            [ "$RID" = "$RUN_ID" ] && continue
+            curl -sf -X DELETE -H "Authorization: token $CI_TOKEN" -H "User-Agent: ci" \
+              "https://api.github.com/repos/kiyamovvildan/toolchain/actions/runs/$RID" || true
+          done
